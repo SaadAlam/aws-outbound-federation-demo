@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS Lambda demo for outbound federation to GCP
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 128
+
+Resources:
+  AwsToGcsFederationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: aws-outbound-federation-demo
+      Handler: lambda_function.lambda_handler
+      CodeUri: .
+      Environment:
+        Variables:
+          GCP_SA_EMAIL: !Ref GcpServiceAccountEmail
+          WIF_POOL_PROVIDER: !Ref WifPoolProvider
+          GCS_BUCKET_NAME: !Ref GcsBucketName
+          AWS_REGION: !Ref AwsRegion
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda-gcp-web-identity-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaFederationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: "*"
+
+Parameters:
+  GcpServiceAccountEmail:
+    Type: String
+    Description: GCP service account email (target)
+  WifPoolProvider:
+    Type: String
+    Description: Full path to GCP Workload Identity Federation provider
+  GcsBucketName:
+    Type: String
+    Description: GCS bucket to upload file
+  AwsRegion:
+    Type: String
+    Default: us-east-1
