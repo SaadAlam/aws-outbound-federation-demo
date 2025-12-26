@@ -33,43 +33,38 @@ STS_ACTION = "GetCallerIdentity"
 STS_VERSION = "2011-06-15"
 
 def get_aws_subject_token():
-    """Generates a signed AWS STS GetCallerIdentity request to be used as the subject token"""
-    logger.info("Generating AWS subject token for federation")
-    session = boto3.session.Session()
-    credentials = session.get_credentials().get_frozen_credentials()
-
-    request = botocore.awsrequest.AWSRequest(
-        method="POST",
-        url=f"{AWS_STS_ENDPOINT}/?Action={STS_ACTION}&Version={STS_VERSION}",
-        headers={"Host": "sts.amazonaws.com"},
-        data=""
+    """Gets a JWT token from AWS STS for outbound federation"""
+    logger.info("Getting AWS JWT token for outbound federation")
+    
+    sts_client = boto3.client('sts', region_name=AWS_REGION)
+    
+    response = sts_client.get_web_identity_token(
+        Audience=["gcp-storage-access"],
+        SigningAlgorithm='RS256'
     )
-
-    signer = botocore.auth.SigV4Auth(credentials, "sts", AWS_REGION)
-    signer.add_auth(request)
-
-    logger.info("AWS subject token generated successfully")
-    return json.dumps({
-        "url": request.url,
-        "method": request.method,
-        "headers": dict(request.headers),
-        "body": ""
-    })
+    
+    logger.info("AWS JWT token generated successfully")
+    return response['WebIdentityToken']
 
 def exchange_aws_to_gcp_token(subject_token):
-    """Exchanges the AWS subject token for a Google federated token using Workload Identity Federation"""
+    """Exchanges the AWS JWT token for a Google federated token using Workload Identity Federation"""
     logger.info("Exchanging AWS token for GCP federated token")
+    logger.info("WIF_POOL_PROVIDER value: %s", WIF_POOL_PROVIDER)
+    
     response = requests.post(
         GCP_STS_ENDPOINT,
         json={
-            "grantType": TOKEN_GRANT_TYPE,
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "audience": f"//iam.googleapis.com/{WIF_POOL_PROVIDER}",
-            "requestedTokenType": REQUESTED_TOKEN_TYPE,
-            "subjectTokenType": SUBJECT_TOKEN_TYPE,
-            "subjectToken": subject_token,
-            "scope": GCP_CLOUD_PLATFORM_SCOPE
+            "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+            "subject_token": subject_token,
+            "scope": "https://www.googleapis.com/auth/cloud-platform"
         }
     )
+    
+    if response.status_code != 200:
+        logger.error("GCP STS Error: %s", response.text)
     response.raise_for_status()
     logger.info("Successfully obtained GCP federated token")
     return response.json()["access_token"]

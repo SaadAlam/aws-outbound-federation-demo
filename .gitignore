@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .venv/
 .slingshot
+.aws-sam
+samconfig.toml
